@@ -144,3 +144,54 @@ button:disabled {
 .status-notfound { color: var(--info-color); }
 .node-result { margin-bottom: 15px; } /* Add spacing between multiple node results */
 .node-result strong { color: var(--accent-color); } /* Make titles stand out */
+
+/* --- Map Specific Styles --- */
+
+#map {
+    height: 75vh; /* 75% of the viewport height */
+    width: 100%;
+    margin-bottom: 15px;
+    border-radius: 5px;
+    border: 1px solid var(--border-color);
+    background-color: #050508; /* Dark background for map area before tiles load */
+}
+
+.map-info {
+    text-align: center;
+    margin-bottom: 15px;
+    padding: 10px;
+    background-color: rgba(0,0,0,0.2); /* Slightly darker background for status text */
+    border-radius: 4px;
+    color: var(--info-color);
+}
+
+/* Style for Leaflet Popups in Dark Mode */
+.leaflet-popup-content-wrapper {
+    background: var(--container-bg);
+    color: var(--text-color);
+    border-radius: 5px;
+    border: 1px solid var(--border-color);
+}
+.leaflet-popup-content {
+    margin: 10px;
+}
+.leaflet-popup-tip {
+    background: var(--container-bg);
+    border-left: 1px solid var(--border-color); /* Need to style the tip too */
+    border-bottom: 1px solid var(--border-color);
+}
+.leaflet-popup-close-button {
+    color: var(--text-color) !important; /* Make close button visible */
+}
+.leaflet-popup-close-button:hover {
+    color: var(--accent-color) !important;
+}
+
+
+/* Alternative: CSS Filter for standard OSM tiles to make them dark */
+/* Only uncomment/use if CartoDB tiles don't work */
+/*
+.map-tiles-dark {
+    filter: brightness(0.6) invert(1) contrast(3) hue-rotate(200deg) saturate(0.3) brightness(0.7);
+}
+*/
