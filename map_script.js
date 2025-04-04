@@ -1,73 +1,132 @@
-// --- TESTING SCRIPT V3 ---
-// Tries to fetch location for 8.8.8.8 VIA THE PROXY, WITHOUT specifying fields.
+// --- Using iplocality.com ---
 document.addEventListener('DOMContentLoaded', () => {
 
     const mapStatusDiv = document.getElementById('mapStatus');
-    const map = L.map('map').setView([20, 0], 2); // Initialize map minimally
+    const map = L.map('map').setView([20, 0], 2); // Initialize map
 
+    // Add CartoDB Dark Matter Tile Layer
     L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
         attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/attributions">CARTO</a>',
         subdomains: 'abcd',
         maxZoom: 19
     }).addTo(map);
 
-    mapStatusDiv.textContent = 'Running simple geolocation test VIA PROXY (no fields specified)...';
-    console.log('TEST V3: Attempting to fetch location for 8.8.8.8 via proxy (no fields)...');
+    mapStatusDiv.textContent = 'Fetching node list...';
 
     // --- URLs ---
-    const testIp = '8.8.8.8';
-    // Target URL WITHOUT the ?fields parameter
-    const targetGeoUrl = `https://ip-api.com/json/${testIp}`;
-    // Proxy URL using the simplified target URL
-    const proxyGeoUrl = `https://api.allorigins.win/get?url=${encodeURIComponent(targetGeoUrl)}`;
+    const realityNetUrl = 'http://68.183.10.93:9000/cluster/info';
+    const proxyUrl = `https://api.allorigins.win/get?url=${encodeURIComponent(realityNetUrl)}`;
+    // iplocality API base URL (HTTPS)
+    const geoApiBaseUrl = 'https://iplocality.com/';
 
-    async function runTestViaProxyNoFields() {
+    // --- Marker Icons ---
+    function createColoredIcon(color) {
+        return L.divIcon({
+            className: 'custom-div-icon',
+            html: `<span style="background-color:${color}; width:12px; height:12px; display:block; border-radius:50%; border: 1px solid rgba(255,255,255,0.5);"></span>`,
+            iconSize: [12, 12],
+            iconAnchor: [6, 6]
+        });
+    }
+    const readyIcon = createColoredIcon('lime');
+    const waitingIcon = createColoredIcon('yellow');
+
+    // --- Fetch Node Data and Process ---
+    async function loadNodesAndMap() {
+        let nodesData = [];
+        // Use an object to store geo data keyed by IP for efficient lookup
+        let geoData = {};
+
         try {
-            // Try fetching via the allorigins.win proxy
-            const response = await fetch(proxyGeoUrl); // Using the proxy URL
+            // 1. Fetch Node List via Proxy
+            mapStatusDiv.textContent = 'Fetching node list...';
+            const nodeResponse = await fetch(proxyUrl);
+            if (!nodeResponse.ok) throw new Error(`Failed to fetch node list: ${nodeResponse.statusText}`);
+            const proxyData = await nodeResponse.json();
+            nodesData = JSON.parse(proxyData.contents);
+            if (!Array.isArray(nodesData)) throw new Error("Node data is not an array.");
+            mapStatusDiv.textContent = `Found ${nodesData.length} nodes. Fetching locations...`;
 
-            console.log('TEST V3: Proxy fetch response received. Status:', response.status);
+            // 2. Get Unique IPs
+            const uniqueIPs = [...new Set(nodesData.map(node => node.ip).filter(ip => ip))];
+            console.log('Using iplocality.com - Unique IPs found:', uniqueIPs.length);
 
-            if (!response.ok) {
-                console.error('TEST V3: Proxy fetch failed with status:', response.status, response.statusText);
-                throw new Error(`Proxy fetch failed: ${response.status} ${response.statusText}`);
-            }
+            // 3. Fetch Geolocation Data Individually with Delay
+            let fetchedCount = 0;
+            for (const ip of uniqueIPs) {
+                fetchedCount++;
+                mapStatusDiv.textContent = `Workspaceing location for IP ${fetchedCount} of <span class="math-inline">\{uniqueIPs\.length\}\.\.\. \(</span>{ip})`;
+                try {
+                    // Construct URL for iplocality
+                    const geoUrl = `<span class="math-inline">\{geoApiBaseUrl\}</span>{ip}`;
+                    // Fetch directly (iplocality seems CORS friendly, uses HTTPS)
+                    const geoResponse = await fetch(geoUrl);
 
-            // allorigins wraps the actual response in 'contents'
-            const proxyData = await response.json();
-            console.log('TEST V3: Proxy response data:', proxyData);
+                    if (!geoResponse.ok) {
+                        // Log error but continue if a single IP lookup fails
+                        console.warn(`Geolocation failed for ${ip}: ${geoResponse.status} ${geoResponse.statusText}`);
+                        // Add a small delay even on failure before next request
+                        await new Promise(resolve => setTimeout(resolve, 150)); // 150ms delay
+                        continue; // Skip to the next IP
+                    }
 
-            if (!proxyData.contents) {
-                 throw new Error("Proxy response did not contain 'contents' field.");
-            }
+                    const locationData = await geoResponse.json();
+                    console.log(`Location data for ${ip}:`, locationData);
 
-            // Parse the actual geolocation data from the 'contents' string
-            const data = JSON.parse(proxyData.contents);
-            console.log('TEST V3: Geolocation data received via proxy (no fields):', data);
+                    // Store successful results if lat/lon exist
+                    if (locationData && locationData.latitude !== undefined && locationData.longitude !== undefined) {
+                        geoData[ip] = { lat: locationData.latitude, lon: locationData.longitude };
+                    } else {
+                         console.warn(`Geolocation data missing lat/lon for ${ip}:`, locationData);
+                    }
 
-            // Check for success status and presence of lat/lon (ip-api includes them by default)
-            if (data.status === 'success' && data.lat !== undefined && data.lon !== undefined) {
-                // Use data.query if available, otherwise the testIp
-                const locatedIp = data.query || testIp;
-                mapStatusDiv.textContent = `TEST V3 SUCCESSFUL! Received location for ${locatedIp} via proxy: Lat ${data.lat}, Lon ${data.lon}, City: ${data.city || 'N/A'}`;
-                // Plot a single marker for success
-                L.marker([data.lat, data.lon])
-                 .addTo(map)
-                 .bindPopup(`Successfully located ${locatedIp} via proxy.<br>City: ${data.city || 'N/A'}`)
-                 .openPopup();
-                map.setView([data.lat, data.lon], 5);
-            } else {
-                // Use data.query if available, otherwise the testIp
-                const failedIp = data.query || testIp;
-                mapStatusDiv.textContent = `TEST V3 FAILED: API (via proxy) returned status '${data.status || 'unknown'}' for ${failedIp}. Check console.`;
-            }
+                } catch (ipError) {
+                     console.error(`Error fetching geolocation for ${ip}:`, ipError);
+                     // Continue to next IP even if one errors out completely
+                }
+                 // Add a small delay between successful/failed requests to be polite
+                 await new Promise(resolve => setTimeout(resolve, 150)); // 150ms delay
+            } // End IP loop
+
+
+            mapStatusDiv.textContent = `Processing ${Object.keys(geoData).length} successfully geolocated IPs. Plotting nodes...`;
+            console.log('Populated geoData (iplocality):', geoData);
+
+            // 4. Plot Nodes on Map
+            let plottedCount = 0;
+            nodesData.forEach(node => {
+                const location = geoData[node.ip];
+                if (location && location.lat !== undefined && location.lon !== undefined) {
+                    const icon = node.state === 'Ready' ? readyIcon : waitingIcon;
+                    const marker = L.marker([location.lat, location.lon], { icon: icon });
+
+                    marker.bindPopup(`
+                        <b>ID:</b> ${shortenId(node.id)}<br>
+                        <b>IP:</b> ${node.ip}<br>
+                        <b>Status:</b> ${node.state}<br>
+                        <b>City:</b> ${geoData[node.ip]?.city || 'N/A'}<br> <b>Country:</b> ${geoData[node.ip]?.country || 'N/A'} `); // Note: We didn't request city/country specifically, but they might be in the default response
+
+                    marker.addTo(map);
+                    plottedCount++;
+                }
+            });
+            mapStatusDiv.textContent = `Map Loaded. Plotted ${plottedCount} of ${nodesData.length} nodes with valid locations.`;
 
         } catch (error) {
-            console.error('TEST V3: An error occurred during the proxy fetch test:', error);
-            mapStatusDiv.textContent = `TEST V3 FAILED: Error during proxy fetch: ${error.message}. Check console.`;
+            console.error("Failed to load map data:", error);
+            mapStatusDiv.textContent = `Error: ${error.message}. Failed to load map. Check console.`;
         }
     }
 
-    runTestViaProxyNoFields();
+    // Helper function to shorten IDs
+    function shortenId(id, startLength = 6, endLength = 6) {
+         if (typeof id !== 'string' || id.length <= startLength + endLength + 3) {
+            return id;
+        }
+        return `<span class="math-inline">\{id\.substring\(0, startLength\)\}\.\.\.</span>{id.substring(id.length - endLength)}`;
+    }
+
+    // Initial load
+    loadNodesAndMap();
 
 }); // End DOMContentLoaded
