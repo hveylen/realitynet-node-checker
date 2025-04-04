@@ -58,7 +58,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 mapStatusDiv.textContent = `Workspaceing location for IP ${fetchedCount} of <span class="math-inline">\{uniqueIPs\.length\}\.\.\. \(</span>{ip})`;
                 try {
                     // Construct URL for iplocality
-                    const geoUrl = `<span class="math-inline">\{geoApiBaseUrl\}</span>{ip}`;
+                    const geoUrl = geoApiBaseUrl + ip; // Use simple concatenation
                     // Fetch directly (iplocality seems CORS friendly, uses HTTPS)
                     const geoResponse = await fetch(geoUrl);
 
