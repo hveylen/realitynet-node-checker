@@ -1,89 +1,109 @@
-// Get references to the HTML elements we need to interact with
-const nodeIdInput = document.getElementById('nodeIdInput');
+// Get references to the HTML elements
+const nodeIdsInput = document.getElementById('nodeIdsInput'); // Changed from nodeIdInput
 const checkButton = document.getElementById('checkButton');
 const resultArea = document.getElementById('resultArea');
 
 // The URL provided by the RealityNet team
 const realityNetUrl = 'http://68.183.10.93:9000/cluster/info';
 
-// --- Using the allorigins.win CORS proxy ---
-// We need to encode the target URL before appending it to the proxy URL
+// Using the allorigins.win CORS proxy
 const encodedUrl = encodeURIComponent(realityNetUrl);
 const proxyUrl = `https://api.allorigins.win/get?url=${encodedUrl}`;
-// Note: If allorigins.win is down, this won't work.
-// A direct fetch would be: fetch(realityNetUrl), but likely blocked by CORS.
 
-// Add an event listener to the button: when clicked, run the checkNodeStatus function
-checkButton.addEventListener('click', checkNodeStatus);
+// Add event listener to the button
+checkButton.addEventListener('click', checkMultipleNodeStatuses);
 
-// Define the main function to check the node status
-async function checkNodeStatus() {
-    const nodeIdToFind = nodeIdInput.value.trim(); // Get the Node ID from input and remove whitespace
+// --- Helper function to shorten long IDs ---
+function shortenId(id, startLength = 6, endLength = 6) {
+    if (typeof id !== 'string' || id.length <= startLength + endLength + 3) {
+        return id; // Return original if not a string or too short
+    }
+    return `${id.substring(0, startLength)}...${id.substring(id.length - endLength)}`;
+}
 
-    // Basic validation: Check if the user entered anything
-    if (!nodeIdToFind) {
-        resultArea.innerHTML = '<span class="status-error">Please enter a Node ID.</span>';
-        return; // Stop the function here
+// --- Main function to handle checking potentially multiple nodes ---
+async function checkMultipleNodeStatuses() {
+    // Get raw input and split into individual IDs
+    // Handles separation by comma, newline, or space, and filters out empty entries
+    const rawInput = nodeIdsInput.value.trim();
+    const nodeIdsToFind = rawInput.split(/[\s,;\n]+/).filter(id => id.length > 0);
+
+    // Basic validation
+    if (nodeIdsToFind.length === 0) {
+        resultArea.innerHTML = '<span class="status-error">Please enter at least one Node ID.</span>';
+        return;
     }
 
-    // Provide feedback to the user while fetching
+    // Provide feedback and disable button
     resultArea.innerHTML = 'Checking... Please wait.';
-    checkButton.disabled = true; // Disable button during check
+    checkButton.disabled = true;
+    let resultsHtml = ''; // Accumulate results here
+    let fetchedNodesData = null; // Store fetched data to avoid multiple fetches
 
     try {
-        // Fetch the data using the CORS proxy URL
+        // --- Fetch the data ONCE for all checks ---
         const response = await fetch(proxyUrl);
-
-        // Check if the fetch itself was successful (e.g., network connection ok)
         if (!response.ok) {
-            // response.statusText gives the HTTP error reason (e.g., "Not Found", "Internal Server Error")
             throw new Error(`Network response was not ok: ${response.status} ${response.statusText}`);
         }
-
-        // The proxy wraps the actual response. We need to parse the proxy's JSON first.
         const proxyData = await response.json();
+        fetchedNodesData = JSON.parse(proxyData.contents);
 
-        // The actual content fetched from realityNetUrl is inside the 'contents' property
-        // We need to parse this content *again* as it's a JSON string
-        const nodesData = JSON.parse(proxyData.contents);
-
-        // Check if nodesData is actually an array (as expected)
-        if (!Array.isArray(nodesData)) {
+        if (!Array.isArray(fetchedNodesData)) {
             throw new Error("Fetched data is not in the expected format (array of nodes).");
         }
+        // --- Data fetched successfully ---
 
-        // Find the node with the matching ID
-        const foundNode = nodesData.find(node => node.id === nodeIdToFind);
-
-        // Display the result
-        if (foundNode) {
-            // Node found! Display its details.
-            let statusClass = '';
-            if (foundNode.state === 'Ready') {
-                statusClass = 'status-ready';
-            } else {
-                // Apply 'waiting' style to any non-Ready state
-                statusClass = 'status-waiting';
+        // --- Now process each requested Node ID ---
+        nodeIdsToFind.forEach((nodeIdToFind, index) => {
+            if (index > 0) {
+                resultsHtml += '<hr class="result-separator">'; // Add separator between results
             }
 
-            resultArea.innerHTML = `
-                <strong>Node Found!</strong><br>
-                ID: ${foundNode.id}<br>
-                IP: ${foundNode.ip}<br>
-                Public Port: ${foundNode.publicPort}<br>
-                Status: <span class="${statusClass}">${foundNode.state}</span>
-            `;
-        } else {
-            // Node not found in the list
-            resultArea.innerHTML = `<span class="status-notfound">Node ID "${nodeIdToFind}" not found in the current list.</span>`;
-        }
+            const foundNode = fetchedNodesData.find(node => node.id === nodeIdToFind);
+            const shortId = shortenId(nodeIdToFind); // Shorten the ID we searched for
+
+            if (foundNode) {
+                // Node found!
+                let statusClass = foundNode.state === 'Ready' ? 'status-ready' : 'status-waiting';
+                const displayId = shortenId(foundNode.id); // Shorten the ID from the result
+
+                // Safely access properties, providing 'N/A' if missing
+                const ip = foundNode.ip || 'N/A';
+                const publicPort = foundNode.publicPort !== undefined ? foundNode.publicPort : 'N/A';
+                const p2pPort = foundNode.p2pPort !== undefined ? foundNode.p2pPort : 'N/A';
+                const session = foundNode.session || 'N/A';
+                const state = foundNode.state || 'Unknown';
+
+                resultsHtml += `
+                    <div class="node-result">
+                        <strong>Result for ID: ${shortId}</strong><br>
+                        IP: ${ip}<br>
+                        Public Port: ${publicPort}<br>
+                        P2P Port: ${p2pPort}<br>
+                        Session: ${session}<br>
+                        Status: <span class="${statusClass}">${state}</span>
+                    </div>
+                `;
+            } else {
+                // Node not found
+                resultsHtml += `
+                    <div class="node-result">
+                        <strong>Result for ID: ${shortId}</strong><br>
+                        <span class="status-notfound">Node ID not found in the current list.</span>
+                    </div>
+                `;
+            }
+        });
+
+        resultArea.innerHTML = resultsHtml; // Display accumulated results
 
     } catch (error) {
-        // Handle any errors during fetch, parsing, or processing
-        console.error('Error checking node status:', error); // Log the error for debugging
-        resultArea.innerHTML = `<span class="status-error">Error: ${error.message}. Could not retrieve or process node data. Check the console for more details. (Is the RealityNet server or the CORS proxy online?)</span>`;
+        // Handle errors during the initial fetch or parsing
+        console.error('Error checking node status:', error);
+        resultArea.innerHTML = `<span class="status-error">Error: ${error.message}. Could not retrieve or process node data. Check the console.</span>`;
     } finally {
-        // Re-enable the button regardless of success or failure
+        // Re-enable the button
         checkButton.disabled = false;
     }
 }
