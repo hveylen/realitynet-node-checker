@@ -27,7 +27,7 @@ document.addEventListener('DOMContentLoaded', () => {
     // --- URLs ---
     const realityNetUrl = 'http://68.183.10.93:9000/cluster/info';
     const proxyUrl = `https://api.allorigins.win/get?url=${encodeURIComponent(realityNetUrl)}`;
-    const geoApiUrl = 'http://ip-api.com/batch'; // Batch endpoint
+    const geoApiUrl = 'https://ip-api.com/batch'; // Batch endpoint (Use HTTPS!)
 
     // --- Marker Icons ---
     // Simple CSS-based circular icons
