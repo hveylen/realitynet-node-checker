@@ -1,4 +1,4 @@
-// --- Using iplocality.com ---
+// --- Using iplocality.com VIA PROXY ---
 document.addEventListener('DOMContentLoaded', () => {
 
     const mapStatusDiv = document.getElementById('mapStatus');
@@ -15,9 +15,11 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // --- URLs ---
     const realityNetUrl = 'http://68.183.10.93:9000/cluster/info';
-    const proxyUrl = `https://api.allorigins.win/get?url=${encodeURIComponent(realityNetUrl)}`;
+    const initialProxyUrl = `https://api.allorigins.win/get?url=${encodeURIComponent(realityNetUrl)}`;
     // iplocality API base URL (HTTPS)
     const geoApiBaseUrl = 'https://iplocality.com/';
+    // Base URL for the proxy
+    const proxyBaseUrl = 'https://api.allorigins.win/get?url=';
 
     // --- Marker Icons ---
     function createColoredIcon(color) {
@@ -40,63 +42,85 @@ document.addEventListener('DOMContentLoaded', () => {
         try {
             // 1. Fetch Node List via Proxy
             mapStatusDiv.textContent = 'Fetching node list...';
-            const nodeResponse = await fetch(proxyUrl);
+            const nodeResponse = await fetch(initialProxyUrl);
             if (!nodeResponse.ok) throw new Error(`Failed to fetch node list: ${nodeResponse.statusText}`);
-            const proxyData = await nodeResponse.json();
-            nodesData = JSON.parse(proxyData.contents);
+            const initialProxyData = await nodeResponse.json();
+             if (!initialProxyData.contents) throw new Error("Proxy response for node list missing 'contents'.");
+            nodesData = JSON.parse(initialProxyData.contents);
             if (!Array.isArray(nodesData)) throw new Error("Node data is not an array.");
-            mapStatusDiv.textContent = `Found ${nodesData.length} nodes. Fetching locations...`;
+            mapStatusDiv.textContent = `Found ${nodesData.length} nodes. Fetching locations via proxy...`;
 
             // 2. Get Unique IPs
             const uniqueIPs = [...new Set(nodesData.map(node => node.ip).filter(ip => ip))];
-            console.log('Using iplocality.com - Unique IPs found:', uniqueIPs.length);
+             console.log('Using iplocality.com VIA PROXY - Unique IPs found:', uniqueIPs.length);
 
-            // 3. Fetch Geolocation Data Individually with Delay
+            // 3. Fetch Geolocation Data VIA PROXY Individually with Delay
             let fetchedCount = 0;
             for (const ip of uniqueIPs) {
                 fetchedCount++;
-                mapStatusDiv.textContent = `Workspaceing location for IP ${fetchedCount} of <span class="math-inline">\{uniqueIPs\.length\}\.\.\. \(</span>{ip})`;
+                mapStatusDiv.textContent = `Workspaceing location for IP ${fetchedCount} of <span class="math-inline">\{uniqueIPs\.length\} via proxy\.\.\. \(</span>{ip})`;
                 try {
-                    // Construct URL for iplocality
-                    const geoUrl = geoApiBaseUrl + ip; // Use simple concatenation
-                    // Fetch directly (iplocality seems CORS friendly, uses HTTPS)
-                    const geoResponse = await fetch(geoUrl);
+                    // Construct TARGET URL for iplocality
+                    const targetGeoUrl = geoApiBaseUrl + ip;
+                    // Construct PROXY URL for iplocality request
+                    const proxyGeoUrl = proxyBaseUrl + encodeURIComponent(targetGeoUrl);
+
+                    // Fetch VIA PROXY
+                    const geoResponse = await fetch(proxyGeoUrl);
 
                     if (!geoResponse.ok) {
-                        // Log error but continue if a single IP lookup fails
-                        console.warn(`Geolocation failed for ${ip}: ${geoResponse.status} ${geoResponse.statusText}`);
-                        // Add a small delay even on failure before next request
-                        await new Promise(resolve => setTimeout(resolve, 150)); // 150ms delay
+                         // Log error from the proxy itself
+                        console.warn(`PROXY Geolocation failed for ${ip}: ${geoResponse.status} ${geoResponse.statusText}`);
+                        await new Promise(resolve => setTimeout(resolve, 150)); // Delay
                         continue; // Skip to the next IP
                     }
 
-                    const locationData = await geoResponse.json();
-                    console.log(`Location data for ${ip}:`, locationData);
+                    // Parse the PROXY response
+                    const proxyData = await geoResponse.json();
+                     console.log(`Proxy response for ${ip}:`, proxyData);
+
+                    if (!proxyData.contents) {
+                       console.warn(`Proxy response missing 'contents' for ${ip}. Original status may have been error.`);
+                       await new Promise(resolve => setTimeout(resolve, 150)); // Delay
+                       continue;
+                   }
+
+                    // Parse the ACTUAL location data from the proxy's contents
+                    const locationData = JSON.parse(proxyData.contents);
+                    console.log(`Location data for ${ip} (via proxy):`, locationData);
 
                     // Store successful results if lat/lon exist
                     if (locationData && locationData.latitude !== undefined && locationData.longitude !== undefined) {
-                        geoData[ip] = { lat: locationData.latitude, lon: locationData.longitude };
+                        // Ensure lat/lon are numbers before storing
+                        const lat = parseFloat(locationData.latitude);
+                        const lon = parseFloat(locationData.longitude);
+                        if (!isNaN(lat) && !isNaN(lon)) {
+                            geoData[ip] = { lat: lat, lon: lon, city: locationData.city, country: locationData.country };
+                        } else {
+                            console.warn(`Parsed lat/lon are not valid numbers for ${ip}:`, locationData);
+                        }
                     } else {
-                         console.warn(`Geolocation data missing lat/lon for ${ip}:`, locationData);
+                         console.warn(`Geolocation data missing lat/lon for ${ip} (via proxy):`, locationData);
                     }
 
                 } catch (ipError) {
-                     console.error(`Error fetching geolocation for ${ip}:`, ipError);
+                     console.error(`Error fetching/processing proxied geolocation for ${ip}:`, ipError);
                      // Continue to next IP even if one errors out completely
                 }
-                 // Add a small delay between successful/failed requests to be polite
+                 // Add delay between requests
                  await new Promise(resolve => setTimeout(resolve, 150)); // 150ms delay
             } // End IP loop
 
 
             mapStatusDiv.textContent = `Processing ${Object.keys(geoData).length} successfully geolocated IPs. Plotting nodes...`;
-            console.log('Populated geoData (iplocality):', geoData);
+            console.log('Populated geoData (iplocality via proxy):', geoData);
 
             // 4. Plot Nodes on Map
             let plottedCount = 0;
             nodesData.forEach(node => {
                 const location = geoData[node.ip];
-                if (location && location.lat !== undefined && location.lon !== undefined) {
+                 // Check location and ensure lat/lon are valid numbers
+                if (location && typeof location.lat === 'number' && typeof location.lon === 'number') {
                     const icon = node.state === 'Ready' ? readyIcon : waitingIcon;
                     const marker = L.marker([location.lat, location.lon], { icon: icon });
 
@@ -104,10 +128,15 @@ document.addEventListener('DOMContentLoaded', () => {
                         <b>ID:</b> ${shortenId(node.id)}<br>
                         <b>IP:</b> ${node.ip}<br>
                         <b>Status:</b> ${node.state}<br>
-                        <b>City:</b> ${geoData[node.ip]?.city || 'N/A'}<br> <b>Country:</b> ${geoData[node.ip]?.country || 'N/A'} `); // Note: We didn't request city/country specifically, but they might be in the default response
+                        <b>City:</b> ${location.city || 'N/A'}<br>
+                        <b>Country:</b> ${location.country || 'N/A'}
+                    `);
 
                     marker.addTo(map);
                     plottedCount++;
+                } else if (node.ip && !geoData[node.ip]) {
+                    // Log IPs that were in the list but couldn't be geolocated/plotted
+                     console.log(`Node <span class="math-inline">\{node\.id\} \(</span>{node.ip}) not plotted - location data missing or invalid.`);
                 }
             });
             mapStatusDiv.textContent = `Map Loaded. Plotted ${plottedCount} of ${nodesData.length} nodes with valid locations.`;
